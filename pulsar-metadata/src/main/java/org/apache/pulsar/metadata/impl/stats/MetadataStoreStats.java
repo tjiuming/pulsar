@@ -21,10 +21,9 @@ package org.apache.pulsar.metadata.impl.stats;
 import com.google.common.base.Strings;
 import io.prometheus.client.Counter;
 import io.prometheus.client.Histogram;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetadataStoreStats implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(MetadataStoreStats.class);

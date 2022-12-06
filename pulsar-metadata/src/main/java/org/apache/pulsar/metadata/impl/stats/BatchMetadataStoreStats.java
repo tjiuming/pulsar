@@ -21,12 +21,11 @@ package org.apache.pulsar.metadata.impl.stats;
 import com.google.common.base.Strings;
 import io.prometheus.client.Gauge;
 import io.prometheus.client.Histogram;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class BatchMetadataStoreStats implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(BatchMetadataStoreStats.class);
