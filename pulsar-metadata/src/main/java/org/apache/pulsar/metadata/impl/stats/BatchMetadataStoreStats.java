@@ -18,13 +18,18 @@
  */
 package org.apache.pulsar.metadata.impl.stats;
 
+import com.google.common.base.Strings;
 import io.prometheus.client.Gauge;
 import io.prometheus.client.Histogram;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class BatchMetadataStoreStats implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(BatchMetadataStoreStats.class);
     private static final double[] BUCKETS = new double[]{1, 5, 10, 20, 50, 100, 200, 500, 1000};
     private static final String NAME = "name";
 
@@ -63,6 +68,9 @@ public final class BatchMetadataStoreStats implements AutoCloseable {
             this.executor = tx;
         } else {
             this.executor = null;
+        }
+        if (Strings.isNullOrEmpty(metadataStoreName)) {
+            log.error("metadataStoreName is null or empty", new RuntimeException());
         }
         this.metadataStoreName = metadataStoreName;
 

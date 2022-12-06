@@ -18,11 +18,16 @@
  */
 package org.apache.pulsar.metadata.impl.stats;
 
+import com.google.common.base.Strings;
 import io.prometheus.client.Counter;
 import io.prometheus.client.Histogram;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetadataStoreStats implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(MetadataStoreStats.class);
     private static final double[] BUCKETS = new double[]{1, 3, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000};
     private static final String OPS_TYPE_LABEL_NAME = "type";
     private static final String METADATA_STORE_LABEL_NAME = "name";
@@ -60,6 +65,9 @@ public final class MetadataStoreStats implements AutoCloseable {
 
     public MetadataStoreStats(String metadataStoreName) {
         this.metadataStoreName = metadataStoreName;
+        if (Strings.isNullOrEmpty(metadataStoreName)) {
+            log.error("metadataStoreName is null or empty", new RuntimeException());
+        }
 
         this.getOpsSucceedChild = OPS_LATENCY.labels(metadataStoreName, OPS_TYPE_GET, STATUS_SUCCESS);
         this.delOpsSucceedChild = OPS_LATENCY.labels(metadataStoreName, OPS_TYPE_DEL, STATUS_SUCCESS);
