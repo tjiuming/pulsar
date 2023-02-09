@@ -31,6 +31,8 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -888,6 +890,23 @@ public class PersistentSubscription extends AbstractSubscription implements Subs
                 log.info("[{}][{}] Successfully closed subscription [{}]", topicName, subName, cursor);
             });
         }
+    }
+
+    protected void retryClose() {
+        ScheduledExecutorService scheduler = topic.getBrokerService().pulsar().getExecutor();
+        scheduler.schedule(() -> {
+            close()
+                    .thenAccept(unused -> {
+                        if (log.isDebugEnabled()) {
+                            log.debug("Close subscription {} finished.", subName);
+                        }
+                    })
+                    .exceptionally(t -> {
+                        log.warn("Close subscription {} failed.", subName, t);
+                        retryClose();
+                        return null;
+                    });
+        }, 20, TimeUnit.SECONDS);
     }
 
     /**

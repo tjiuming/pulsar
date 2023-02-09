@@ -116,6 +116,7 @@ import org.apache.pulsar.broker.stats.NamespaceStats;
 import org.apache.pulsar.broker.stats.ReplicationMetrics;
 import org.apache.pulsar.broker.transaction.buffer.TransactionBuffer;
 import org.apache.pulsar.broker.transaction.buffer.impl.TransactionBufferDisable;
+import org.apache.pulsar.broker.transaction.pendingack.exceptions.PendingAckHandleReplayException;
 import org.apache.pulsar.broker.transaction.pendingack.impl.MLPendingAckStore;
 import org.apache.pulsar.client.admin.LongRunningProcessStatus;
 import org.apache.pulsar.client.admin.OffloadProcessStatus;
@@ -298,12 +299,23 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
                 // ignore it for now and let the message dedup logic to take care of it
             } else {
                 final String subscriptionName = Codec.decode(cursor.getName());
-                subscriptions.put(subscriptionName, createPersistentSubscription(subscriptionName, cursor,
+                PersistentSubscription subscription = createPersistentSubscription(subscriptionName, cursor,
                         PersistentSubscription.isCursorFromReplicatedSubscription(cursor),
-                        cursor.getCursorProperties()));
-                // subscription-cursor gets activated by default: deactivate as there is no active subscription right
-                // now
-                subscriptions.get(subscriptionName).deactivateCursor();
+                        cursor.getCursorProperties());
+                subscriptions.put(subscriptionName, subscription);
+                subscription.getPendingAckHandle()
+                        .pendingAckHandleFuture()
+                        .exceptionally(t -> {
+                            log.warn("PersistentSubscription [{}] pendingAckHandleImpl relay failed "
+                                    + "when initialize topic [{}].", subscriptionName, topic, t);
+                            if (subscriptions.remove(subscriptionName, subscription)) {
+                                subscription.retryClose();
+                            } else {
+                                log.warn("[{}] Remove subscription {} from subscriptions failed.",
+                                        topic, subscriptionName);
+                            }
+                            return null;
+                        });
             }
         }
         this.messageDeduplication = new MessageDeduplication(brokerService.pulsar(), this, ledger);
@@ -887,6 +899,13 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
                 } else if (ex.getCause() instanceof BrokerServiceException.SubscriptionFencedException
                         && isCompactionSubscription(subscriptionName)) {
                     log.warn("[{}] Failed to create compaction subscription: {}", topic, ex.getMessage());
+                } else if (ex.getCause() instanceof PendingAckHandleReplayException) {
+                    PersistentSubscription subscription = subscriptions.remove(subscriptionName);
+                    if (subscription != null) {
+                        subscription.retryClose();
+                    }
+                    log.warn("[{}] Failed to create subscription {} due to PendingAckHandle recover failed.",
+                            topic, subscriptionName, ex);
                 } else {
                     log.error("[{}] Failed to create subscription: {}", topic, subscriptionName, ex);
                 }
@@ -910,7 +929,8 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
                 replicatedSubscriptionStateArg, keySharedMeta, null, DEFAULT_CONSUMER_EPOCH);
     }
 
-    private CompletableFuture<Subscription> getDurableSubscription(String subscriptionName,
+    @VisibleForTesting
+    public CompletableFuture<Subscription> getDurableSubscription(String subscriptionName,
             InitialPosition initialPosition, long startMessageRollbackDurationSec, boolean replicated,
                                                                    Map<String, String> subscriptionProperties) {
         CompletableFuture<Subscription> subscriptionFuture = new CompletableFuture<>();
@@ -970,7 +990,8 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
         return subscriptionFuture;
     }
 
-    private CompletableFuture<? extends Subscription> getNonDurableSubscription(String subscriptionName,
+    @VisibleForTesting
+    public CompletableFuture<? extends Subscription> getNonDurableSubscription(String subscriptionName,
             MessageId startMessageId, InitialPosition initialPosition, long startMessageRollbackDurationSec,
             boolean isReadCompacted, Map<String, String> subscriptionProperties) {
         log.info("[{}][{}] Creating non-durable subscription at msg id {} - {}",
