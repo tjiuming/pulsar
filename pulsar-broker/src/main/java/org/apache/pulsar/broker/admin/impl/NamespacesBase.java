@@ -297,11 +297,11 @@ public abstract class NamespacesBase extends AdminResource {
                 .thenCompose(ignore -> pulsar().getNamespaceService()
                         .getNamespaceBundleFactory().getBundlesAsync(namespaceName))
                 .thenCompose(bundles -> FutureUtil.waitForAll(bundles.getBundles().stream()
-                        .map(bundle -> pulsar().getNamespaceService().getOwnerAsync(bundle)
-                                .thenCompose(owner -> {
+                        .map(bundle -> pulsar().getNamespaceService().checkOwnershipPresentAsync(bundle)
+                                .thenCompose(present -> {
                                     // check if the bundle is owned by any broker,
                                     // if not then we do not need to delete the bundle
-                                    if (owner.isPresent()) {
+                                    if (present) {
                                         PulsarAdmin admin;
                                         try {
                                             admin = pulsar().getAdminClient();
@@ -883,7 +883,7 @@ public abstract class NamespacesBase extends AdminResource {
                         policies -> new LocalPolicies(policies.bundles,
                                 bookieAffinityGroup,
                                 policies.namespaceAntiAffinityGroup))
-                        .orElseGet(() -> new LocalPolicies(defaultBundle(),
+                        .orElseGet(() -> new LocalPolicies(getBundles(config().getDefaultNumberOfNamespaceBundles()),
                                 bookieAffinityGroup,
                                 null));
                 log.info("[{}] Successfully updated local-policies configuration: namespace={}, map={}", clientAppId(),
@@ -1411,7 +1411,7 @@ public abstract class NamespacesBase extends AdminResource {
                     .getBundles(namespaceName);
             for (NamespaceBundle nsBundle : bundles.getBundles()) {
                 // check if the bundle is owned by any broker, if not then there is no backlog on this bundle to clear
-                if (pulsar().getNamespaceService().getOwner(nsBundle).isPresent()) {
+                if (pulsar().getNamespaceService().checkOwnershipPresent(nsBundle)) {
                     futures.add(pulsar().getAdminClient().namespaces()
                             .clearNamespaceBundleBacklogAsync(namespaceName.toString(), nsBundle.getBundleRange()));
                 }
@@ -1476,7 +1476,7 @@ public abstract class NamespacesBase extends AdminResource {
                     .getBundles(namespaceName);
             for (NamespaceBundle nsBundle : bundles.getBundles()) {
                 // check if the bundle is owned by any broker, if not then there is no backlog on this bundle to clear
-                if (pulsar().getNamespaceService().getOwner(nsBundle).isPresent()) {
+                if (pulsar().getNamespaceService().checkOwnershipPresent(nsBundle)) {
                     futures.add(pulsar().getAdminClient().namespaces().clearNamespaceBundleBacklogForSubscriptionAsync(
                             namespaceName.toString(), nsBundle.getBundleRange(), subscription));
                 }
@@ -1543,7 +1543,7 @@ public abstract class NamespacesBase extends AdminResource {
                     .getBundles(namespaceName);
             for (NamespaceBundle nsBundle : bundles.getBundles()) {
                 // check if the bundle is owned by any broker, if not then there are no subscriptions
-                if (pulsar().getNamespaceService().getOwner(nsBundle).isPresent()) {
+                if (pulsar().getNamespaceService().checkOwnershipPresent(nsBundle)) {
                     futures.add(pulsar().getAdminClient().namespaces().unsubscribeNamespaceBundleAsync(
                             namespaceName.toString(), nsBundle.getBundleRange(), subscription));
                 }
@@ -1710,7 +1710,8 @@ public abstract class NamespacesBase extends AdminResource {
         try {
             return getLocalPolicies()
                     .getLocalPolicies(namespaceName)
-                    .orElse(new LocalPolicies()).namespaceAntiAffinityGroup;
+                    .orElseGet(() -> new LocalPolicies(getBundles(config().getDefaultNumberOfNamespaceBundles())
+                            , null, null)).namespaceAntiAffinityGroup;
         } catch (Exception e) {
             log.error("[{}] Failed to get the antiAffinityGroup of namespace {}", clientAppId(), namespaceName, e);
             throw new RestException(Status.NOT_FOUND, "Couldn't find namespace policies");
@@ -1760,7 +1761,9 @@ public abstract class NamespacesBase extends AdminResource {
                     throw new RuntimeException(e);
                 }
 
-                String storedAntiAffinityGroup = policies.orElse(new LocalPolicies()).namespaceAntiAffinityGroup;
+                String storedAntiAffinityGroup = policies.orElseGet(() ->
+                        new LocalPolicies(getBundles(config().getDefaultNumberOfNamespaceBundles()),
+                                null, null)).namespaceAntiAffinityGroup;
                 return antiAffinityGroup.equalsIgnoreCase(storedAntiAffinityGroup);
             }).collect(Collectors.toList());
 
